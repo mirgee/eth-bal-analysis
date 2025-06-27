@@ -185,3 +185,5 @@ debug_*.py
 comprehensive_test_results.json
 edge_case_results.json
 test_results.json
+cmp/
+.session.vim
