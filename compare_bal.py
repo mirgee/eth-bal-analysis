@@ -13,12 +13,13 @@ from bal_builder import BALBuilder, sort_block_access_list
 from bal_builder import extract_reads_from_block
 from BALs import BlockAccessList
 
-ALCHEMY_RPC_URL = ""
 BESU_RPC_URL = "http://localhost:8545"
-BLOCK_NUMBER = 22774213
+
+rpc_file = os.path.join(Path(__file__).parent, "rpc.txt")
+with open(rpc_file, "r") as file:
+    ALCHEMY_RPC_URL = file.read().strip()
 
 def convert_bal_to_json(bal: BlockAccessList) -> dict:
-    """Convert SSZ BAL to human-readable JSON."""
     def b64(b): return '0x' + b.hex().rjust(64, '0')
 
     def b(b): return '0x' + b.hex()
@@ -55,10 +56,9 @@ def convert_bal_to_json(bal: BlockAccessList) -> dict:
         "accountChanges": [account(acct) for acct in bal.account_changes]
     }
 
-
-def get_reference_bal_for_block() -> dict:
-    trace = fetch_block_trace(BLOCK_NUMBER, ALCHEMY_RPC_URL)
-    reads = extract_reads_from_block(BLOCK_NUMBER, ALCHEMY_RPC_URL)
+def get_reference_bal_for_block(block_number: int) -> dict:
+    trace = fetch_block_trace(block_number, ALCHEMY_RPC_URL)
+    reads = extract_reads_from_block(block_number, ALCHEMY_RPC_URL)
     builder = BALBuilder()
     touched = collect_touched_addresses(trace)
     process_storage_changes(trace, additional_reads=reads, ignore_reads=False, builder=builder)
@@ -71,12 +71,11 @@ def get_reference_bal_for_block() -> dict:
     sorted_bal = sort_block_access_list(bal)
     return convert_bal_to_json(sorted_bal)
 
-
-def get_block_transactions() -> list[dict]:
+def get_block_transactions(block_number: int) -> list[dict]:
     payload = {
         "jsonrpc": "2.0",
         "method": "eth_getBlockByNumber",
-        "params": [hex(BLOCK_NUMBER), True],
+        "params": [hex(block_number), True],
         "id": 1
     }
 
@@ -98,8 +97,7 @@ def get_block_transactions() -> list[dict]:
     
     return formatted
 
-
-def simulate_transactions(transactions: list[dict]) -> dict:
+def simulate_transactions(block_number: int, transactions: list[dict]) -> dict:
     payload = {
         "jsonrpc": "2.0",
         "method": "eth_simulateV1",
@@ -111,7 +109,7 @@ def simulate_transactions(transactions: list[dict]) -> dict:
                 "validation": True,
                 "traceTransfers": False
             },
-            str(BLOCK_NUMBER - 1)
+            str(block_number - 1)
         ],
         "id": 1
     }
@@ -120,9 +118,7 @@ def simulate_transactions(transactions: list[dict]) -> dict:
     if "error" in resp:
         raise Exception(f"Simulation failed: {resp['error']}")
     
-    # Assumes result is a list with one item
     return resp["result"][0]["blockAccessList"]
-
 
 def extract_storage_changes_map(bal_json: dict) -> dict:
     result = {}
@@ -139,31 +135,28 @@ def extract_storage_changes_map(bal_json: dict) -> dict:
         result[addr] = slot_map
     return result
 
-
-def dump_bal_jsons(ref_bal: dict, besu_bal: dict, output_dir: Path = None):
+def dump_bal_jsons(block_number: int, ref_bal: dict, besu_bal: dict, output_dir: Path = None):
     if output_dir is None:
-        output_dir = Path(__file__).resolve().parent / "cmp"
+        output_dir = Path(__file__).resolve().parent / "cmp" / str(block_number)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    ref_path = output_dir / f"{BLOCK_NUMBER}_ref_bal.json"
-    besu_path = output_dir / f"{BLOCK_NUMBER}_besu_bal.json"
+    ref_path = output_dir / "bal_ref.json"
+    besu_path = output_dir / "bal_besu.json"
 
     with open(ref_path, "w") as f:
         json.dump(ref_bal, f, indent=2)
     with open(besu_path, "w") as f:
         json.dump(besu_bal, f, indent=2)
 
-
-def dump_diff_json(diff: dict, output_dir: Path = None):
+def dump_diff_json(block_number: int, diff: dict, output_dir: Path = None):
     if output_dir is None:
-        output_dir = Path(__file__).resolve().parent / "cmp"
+        output_dir = Path(__file__).resolve().parent / "cmp" / str(block_number)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    diff_path = output_dir / f"{BLOCK_NUMBER}_diff.json"
+    diff_path = output_dir / "diff.json"
 
     with open(diff_path, "w") as f:
         f.write(diff.to_json(indent=2))
-
 
 def remove_zero_address(json_data):
     ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
@@ -174,7 +167,6 @@ def remove_zero_address(json_data):
 
     return json_data
 
-
 def index_account_changes(account_changes):
     return {
         entry['address']: entry
@@ -182,18 +174,19 @@ def index_account_changes(account_changes):
     }
 
 if __name__ == "__main__":
-    ref_bal = get_reference_bal_for_block()
-    txs = get_block_transactions()
-    besu_bal = simulate_transactions(txs)
-    besu_bal = remove_zero_address(besu_bal)
-    ref_bal = index_account_changes(ref_bal['accountChanges'])
-    besu_bal = index_account_changes(besu_bal['accountChanges'])
+    start = 22774213
+    length = 5
+    for block_num in range(start, start + length):
+        ref_bal = get_reference_bal_for_block(block_num)
+        txs = get_block_transactions(block_num)
 
-    dump_bal_jsons(ref_bal, besu_bal)
+        besu_bal = simulate_transactions(block_num, txs)
+        besu_bal = remove_zero_address(besu_bal)
 
-    cmp_dir = Path(__file__).resolve().parent / "cmp"
-    cmp_dir.mkdir(exist_ok=True)
+        ref_bal = index_account_changes(ref_bal['accountChanges'])
+        besu_bal = index_account_changes(besu_bal['accountChanges'])
 
-    diff = DeepDiff(ref_bal, besu_bal, verbose_level=0, ignore_order=True)
-    dump_diff_json(diff)
+        dump_bal_jsons(block_num, ref_bal, besu_bal)
 
+        diff = DeepDiff(ref_bal, besu_bal, verbose_level=0, ignore_order=True)
+        dump_diff_json(block_num, diff)
