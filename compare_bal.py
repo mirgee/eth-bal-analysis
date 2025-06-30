@@ -84,6 +84,7 @@ def get_block_transactions(block_number: int) -> list[dict]:
         raise Exception(f"Error fetching block: {resp['error']}")
     
     txs = resp["result"]["transactions"]
+    miner = resp["result"]["miner"]
     formatted = []
     for tx in txs:
         formatted.append({
@@ -95,7 +96,7 @@ def get_block_transactions(block_number: int) -> list[dict]:
             "input": tx.get("input", "0x")
         })
     
-    return formatted
+    return formatted, miner
 
 def simulate_transactions(block_number: int, transactions: list[dict]) -> dict:
     payload = {
@@ -107,7 +108,7 @@ def simulate_transactions(block_number: int, transactions: list[dict]) -> dict:
                     {"calls": transactions}
                 ],
                 "validation": True,
-                "traceTransfers": False
+                "traceTransfers": True
             },
             str(block_number - 1)
         ],
@@ -158,13 +159,10 @@ def dump_diff_json(block_number: int, diff: dict, output_dir: Path = None):
     with open(diff_path, "w") as f:
         f.write(diff.to_json(indent=2))
 
-def remove_zero_address(json_data):
-    ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
-
+def remove_address(json_data, address):
     json_data["accountChanges"] = [
-        acct for acct in json_data["accountChanges"] if acct["address"] != ZERO_ADDRESS
+        acct for acct in json_data["accountChanges"] if acct["address"] != address
     ]
-
     return json_data
 
 def index_account_changes(account_changes):
@@ -174,14 +172,15 @@ def index_account_changes(account_changes):
     }
 
 if __name__ == "__main__":
-    start = 22774213
+    start = 22774016
     length = 5
     for block_num in range(start, start + length):
         ref_bal = get_reference_bal_for_block(block_num)
-        txs = get_block_transactions(block_num)
+        txs, miner = get_block_transactions(block_num)
 
         besu_bal = simulate_transactions(block_num, txs)
-        besu_bal = remove_zero_address(besu_bal)
+        besu_bal = remove_address(besu_bal, "0x0000000000000000000000000000000000000000")
+        besu_bal = remove_address(besu_bal, miner)
 
         ref_bal = index_account_changes(ref_bal['accountChanges'])
         besu_bal = index_account_changes(besu_bal['accountChanges'])
