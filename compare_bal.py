@@ -36,8 +36,8 @@ def convert_bal_to_json(bal: BlockAccessList) -> dict:
     def account(acct):
         return {
             "address": b(acct.address),
-            "storageChanges": [storage_changes(sc) for sc in acct.storage_changes],
-            "storageReads": [b(sr.slot) for sr in acct.storage_reads],
+            "storageChanges": [storage_changes(sc) for sc in acct.storage_writes],
+            "storageReads": [b(sr) for sr in acct.storage_reads],
             "balanceChanges": [
                 {"txIndex": bc.tx_index, "postBalance": b64(bc.post_balance)}
                 for bc in acct.balance_changes
@@ -166,24 +166,35 @@ def remove_address(json_data, address):
     return json_data
 
 def index_account_changes(account_changes):
-    return {
+    account_changes = account_changes['accountChanges']
+    account_changes = {
         entry['address']: entry
         for entry in account_changes
     }
+    for address, entry in account_changes.items():
+        entry["storageChanges"] = {
+            change["slot"]: change
+            for change in entry.get("storageChanges", [])
+        }
+    return account_changes
 
 if __name__ == "__main__":
-    start = 22774016
+    start = 22778550
     length = 5
     for block_num in range(start, start + length):
+        print(f"Processing block number {block_num}")
         ref_bal = get_reference_bal_for_block(block_num)
         txs, miner = get_block_transactions(block_num)
 
         besu_bal = simulate_transactions(block_num, txs)
+
         besu_bal = remove_address(besu_bal, "0x0000000000000000000000000000000000000000")
         besu_bal = remove_address(besu_bal, miner)
+        ref_bal = remove_address(ref_bal, "0x0000000000000000000000000000000000000000")
+        ref_bal = remove_address(ref_bal, miner)
 
-        ref_bal = index_account_changes(ref_bal['accountChanges'])
-        besu_bal = index_account_changes(besu_bal['accountChanges'])
+        ref_bal = index_account_changes(ref_bal)
+        besu_bal = index_account_changes(besu_bal)
 
         dump_bal_jsons(block_num, ref_bal, besu_bal)
 
