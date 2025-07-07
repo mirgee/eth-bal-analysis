@@ -83,33 +83,40 @@ def get_block_transactions(block_number: int) -> list[dict]:
     if "error" in resp:
         raise Exception(f"Error fetching block: {resp['error']}")
     
-    txs = resp["result"]["transactions"]
     miner = resp["result"]["miner"]
+    txs = resp["result"]["transactions"]
     formatted = []
     for tx in txs:
         tx_obj = {
-            "from": tx["from"],
-            "to": tx.get("to"),
-            "gas": tx.get("gas"),
-            "value": tx.get("value", "0x0"),
-            "input": tx.get("input", "0x"),
-            "nonce": tx.get("nonce")
+            "from": tx["from"]
         }
-
+        if "to" in tx:
+            tx_obj["to"] = tx["to"]
+        if "gas" in tx:
+            tx_obj["gas"] = tx["gas"]
+        if "value" in tx:
+            tx_obj["value"] = tx["value"]
+        if "input" in tx:
+            tx_obj["input"] = tx["input"]
+        if "nonce" in tx:
+            tx_obj["nonce"] = tx["nonce"]
         if "maxFeePerGas" in tx and "maxPriorityFeePerGas" in tx:
-            # EIP-1559
             tx_obj["maxFeePerGas"] = tx["maxFeePerGas"]
             tx_obj["maxPriorityFeePerGas"] = tx["maxPriorityFeePerGas"]
-        else:
-            # Fallback for legacy txs
-            tx_obj["gasPrice"] = tx.get("gasPrice", "0x0")
-
+        elif "gasPrice" in tx:
+            tx_obj["gasPrice"] = tx["gasPrice"]
         if "accessList" in tx:
             tx_obj["accessList"] = tx["accessList"]
         if "maxFeePerBlobGas" in tx:
             tx_obj["maxFeePerBlobGas"] = tx["maxFeePerBlobGas"]
         if "blobVersionedHashes" in tx:
             tx_obj["blobVersionedHashes"] = tx["blobVersionedHashes"]
+        if "authorizationList" in tx:
+            tx_obj["authorizationList"] = tx["authorizationList"]
+            for t in tx_obj["authorizationList"]:
+                if "yParity" in t:
+                    t["v"] = t["yParity"]
+                    del t["yParity"]
 
         formatted.append(tx_obj)
 
@@ -197,7 +204,7 @@ def index_account_changes(account_changes):
 
 if __name__ == "__main__":
     start = 22778550
-    length = 5
+    length = 10
     for block_num in range(start, start + length):
         print(f"Processing block number {block_num}")
         ref_bal = get_reference_bal_for_block(block_num)
