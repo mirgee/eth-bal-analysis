@@ -42,10 +42,10 @@ def convert_bal_to_json(bal: BlockAccessList) -> dict:
                 {"txIndex": bc.tx_index, "postBalance": b64(bc.post_balance)}
                 for bc in acct.balance_changes
             ],
-            "nonceChanges": [
-                {"txIndex": nc.tx_index, "newNonce": nc.new_nonce}
-                for nc in acct.nonce_changes
-            ],
+            # "nonceChanges": [
+            #     {"txIndex": nc.tx_index, "newNonce": nc.new_nonce}
+            #     for nc in acct.nonce_changes
+            # ],
             "codeChanges": [
                 {"txIndex": cc.tx_index, "newCode": b(cc.new_code)}
                 for cc in acct.code_changes
