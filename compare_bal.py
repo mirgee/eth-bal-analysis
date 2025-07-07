@@ -87,15 +87,32 @@ def get_block_transactions(block_number: int) -> list[dict]:
     miner = resp["result"]["miner"]
     formatted = []
     for tx in txs:
-        formatted.append({
+        tx_obj = {
             "from": tx["from"],
             "to": tx.get("to"),
-            "gas": hex(int(tx["gas"], 16)),
-            "gasPrice": hex(int(tx.get("gasPrice", "0x0"), 16)),
-            "value": hex(int(tx.get("value", "0x0"), 16)),
-            "input": tx.get("input", "0x")
-        })
-    
+            "gas": tx.get("gas"),
+            "value": tx.get("value", "0x0"),
+            "input": tx.get("input", "0x"),
+            "nonce": tx.get("nonce")
+        }
+
+        if "maxFeePerGas" in tx and "maxPriorityFeePerGas" in tx:
+            # EIP-1559
+            tx_obj["maxFeePerGas"] = tx["maxFeePerGas"]
+            tx_obj["maxPriorityFeePerGas"] = tx["maxPriorityFeePerGas"]
+        else:
+            # Fallback for legacy txs
+            tx_obj["gasPrice"] = tx.get("gasPrice", "0x0")
+
+        if "accessList" in tx:
+            tx_obj["accessList"] = tx["accessList"]
+        if "maxFeePerBlobGas" in tx:
+            tx_obj["maxFeePerBlobGas"] = tx["maxFeePerBlobGas"]
+        if "blobVersionedHashes" in tx:
+            tx_obj["blobVersionedHashes"] = tx["blobVersionedHashes"]
+
+        formatted.append(tx_obj)
+
     return formatted, miner
 
 def simulate_transactions(block_number: int, transactions: list[dict]) -> dict:
