@@ -10,7 +10,7 @@ sys.path.append(str(Path(__file__).resolve().parent / "src"))
 from bal_builder import fetch_block_trace, process_storage_changes, process_balance_changes
 from bal_builder import process_code_changes, process_nonce_changes, collect_touched_addresses
 from bal_builder import BALBuilder, sort_block_access_list
-from bal_builder import extract_reads_from_block
+from bal_builder import extract_reads_from_block, fetch_block_receipts, fetch_block_info, extract_balance_touches_from_block
 from BALs import BlockAccessList
 
 BESU_RPC_URL = "http://localhost:8545"
@@ -58,13 +58,25 @@ def convert_bal_to_json(bal: BlockAccessList) -> dict:
 
 def get_reference_bal_for_block(block_number: int) -> dict:
     trace = fetch_block_trace(block_number, ALCHEMY_RPC_URL)
+    balance_touches = extract_balance_touches_from_block(block_number, ALCHEMY_RPC_URL)
+    receipts = fetch_block_receipts(block_number, ALCHEMY_RPC_URL)
+    reverted_tx_indices = set()
+    for i, receipt in enumerate(receipts):
+        if receipt and receipt.get("status") == "0x0":
+            reverted_tx_indices.add(i)
+    if reverted_tx_indices:
+        print(f"    Found {len(reverted_tx_indices)} reverted transactions: {sorted(reverted_tx_indices)}")
+    block_info = None
+    if reverted_tx_indices:
+        print(f"  Fetching block info for reverted transaction handling...")
+        block_info = fetch_block_info(block_number, ALCHEMY_RPC_URL)
     reads = extract_reads_from_block(block_number, ALCHEMY_RPC_URL)
     builder = BALBuilder()
     touched = collect_touched_addresses(trace)
-    process_storage_changes(trace, additional_reads=reads, ignore_reads=False, builder=builder)
-    process_balance_changes(trace, builder=builder, touched_addresses=touched)
-    process_code_changes(trace, builder)
-    process_nonce_changes(trace, builder)
+    process_storage_changes(trace, reads, False, builder, reverted_tx_indices)
+    process_balance_changes(trace, builder, touched, balance_touches, reverted_tx_indices, block_info, False)
+    process_code_changes(trace, builder, reverted_tx_indices)
+    process_nonce_changes(trace, builder, reverted_tx_indices)
     for addr in touched:
         builder.add_touched_account(bytes.fromhex(addr[2:]) if addr.startswith("0x") else bytes.fromhex(addr))
     bal = builder.build(ignore_reads=False)
@@ -203,8 +215,8 @@ def index_account_changes(account_changes):
     return account_changes
 
 if __name__ == "__main__":
-    start = 22778550
-    length = 10
+    start = 22778554
+    length = 1
     for block_num in range(start, start + length):
         print(f"Processing block number {block_num}")
         ref_bal = get_reference_bal_for_block(block_num)
