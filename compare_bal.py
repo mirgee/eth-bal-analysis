@@ -83,6 +83,20 @@ def get_reference_bal_for_block(block_number: int) -> dict:
     sorted_bal = sort_block_access_list(bal)
     return convert_bal_to_json(sorted_bal)
 
+def build_block_overrides(block: dict) -> dict:
+    return {
+        "baseFeePerGas": block.get("baseFeePerGas"),
+        "feeRecipient": block.get("miner"),
+        "gasLimit": block.get("gasLimit"),
+        "number": block.get("number"),
+        "mixHash": block.get("mixHash"),
+        "stateRoot": block.get("stateRoot"),
+        "hash": block.get("hash"),
+        # "prevRandao": block.get("mixHash"),
+        "time": block.get("timestamp"),
+        # "withdrawals": block.get("withdrawals")
+    }
+
 def get_block_transactions(block_number: int) -> list[dict]:
     payload = {
         "jsonrpc": "2.0",
@@ -95,6 +109,7 @@ def get_block_transactions(block_number: int) -> list[dict]:
     if "error" in resp:
         raise Exception(f"Error fetching block: {resp['error']}")
     
+    block = resp["result"]
     miner = resp["result"]["miner"]
     txs = resp["result"]["transactions"]
     formatted = []
@@ -132,16 +147,21 @@ def get_block_transactions(block_number: int) -> list[dict]:
 
         formatted.append(tx_obj)
 
-    return formatted, miner
+    return block, formatted, miner
 
-def simulate_transactions(block_number: int, transactions: list[dict]) -> dict:
+def simulate_transactions(block_number: int, transactions: list[dict], block: dict) -> dict:
+    block_overrides = build_block_overrides(block)
+
     payload = {
         "jsonrpc": "2.0",
         "method": "eth_simulateV1",
         "params": [
             {
                 "blockStateCalls": [
-                    {"calls": transactions}
+                    {
+                        "calls": transactions,
+                        "blockOverrides": block_overrides
+                    }
                 ],
                 "validation": True,
                 "traceTransfers": True
@@ -215,14 +235,15 @@ def index_account_changes(account_changes):
     return account_changes
 
 if __name__ == "__main__":
-    start = 22778554
+    start = 22778573
     length = 1
     for block_num in range(start, start + length):
         print(f"Processing block number {block_num}")
         ref_bal = get_reference_bal_for_block(block_num)
-        txs, miner = get_block_transactions(block_num)
+        block, txs, miner = get_block_transactions(block_num)
+        print(f"Miner is {miner}")
 
-        besu_bal = simulate_transactions(block_num, txs)
+        besu_bal = simulate_transactions(block_num, txs, block)
 
         besu_bal = remove_address(besu_bal, "0x0000000000000000000000000000000000000000")
         besu_bal = remove_address(besu_bal, miner)
