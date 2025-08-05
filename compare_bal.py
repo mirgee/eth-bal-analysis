@@ -56,6 +56,19 @@ def convert_bal_to_json(bal: BlockAccessList) -> dict:
         "accountChanges": [account(acct) for acct in bal.account_changes]
     }
 
+def remove_empty(d):
+    if isinstance(d, dict):
+        cleaned = {
+            k: remove_empty(v)
+            for k, v in d.items()
+        }
+        return {k: v for k, v in cleaned.items() if v not in ({}, [])}
+    elif isinstance(d, list):
+        cleaned = [remove_empty(item) for item in d]
+        return [item for item in cleaned if item not in ({}, [])]
+    else:
+        return d
+
 def get_reference_bal_for_block(block_number: int) -> dict:
     trace = fetch_block_trace(block_number, ALCHEMY_RPC_URL)
     balance_touches = extract_balance_touches_from_block(block_number, ALCHEMY_RPC_URL)
@@ -74,14 +87,16 @@ def get_reference_bal_for_block(block_number: int) -> dict:
     builder = BALBuilder()
     touched = collect_touched_addresses(trace)
     process_storage_changes(trace, reads, False, builder, reverted_tx_indices)
-    process_balance_changes(trace, builder, touched, balance_touches, reverted_tx_indices, block_info, False)
+    process_balance_changes(trace, builder, touched, balance_touches, reverted_tx_indices, block_info, receipts, False)
     process_code_changes(trace, builder, reverted_tx_indices)
     process_nonce_changes(trace, builder, reverted_tx_indices)
     for addr in touched:
         builder.add_touched_account(bytes.fromhex(addr[2:]) if addr.startswith("0x") else bytes.fromhex(addr))
     bal = builder.build(ignore_reads=False)
     sorted_bal = sort_block_access_list(bal)
-    return convert_bal_to_json(sorted_bal)
+    json_bal = convert_bal_to_json(sorted_bal)
+    pruned_bal = remove_empty(json_bal)
+    return pruned_bal
 
 def build_block_overrides(block: dict) -> dict:
     return {
@@ -92,9 +107,9 @@ def build_block_overrides(block: dict) -> dict:
         "mixHash": block.get("mixHash"),
         "stateRoot": block.get("stateRoot"),
         "hash": block.get("hash"),
-        # "prevRandao": block.get("mixHash"),
+        "prevRandao": block.get("mixHash"),
         "time": block.get("timestamp"),
-        # "withdrawals": block.get("withdrawals")
+        "withdrawals": block.get("withdrawals")
     }
 
 def get_block_transactions(block_number: int) -> list[dict]:
@@ -151,6 +166,7 @@ def get_block_transactions(block_number: int) -> list[dict]:
 
 def simulate_transactions(block_number: int, transactions: list[dict], block: dict) -> dict:
     block_overrides = build_block_overrides(block)
+    print(block_overrides)
 
     payload = {
         "jsonrpc": "2.0",
@@ -235,8 +251,8 @@ def index_account_changes(account_changes):
     return account_changes
 
 if __name__ == "__main__":
-    start = 22778550
-    length = 1
+    start = 23044250
+    length = 50
     for block_num in range(start, start + length):
         print(f"Processing block number {block_num}")
         ref_bal = get_reference_bal_for_block(block_num)
@@ -245,10 +261,10 @@ if __name__ == "__main__":
 
         besu_bal = simulate_transactions(block_num, txs, block)
 
-        besu_bal = remove_address(besu_bal, "0x0000000000000000000000000000000000000000")
-        besu_bal = remove_address(besu_bal, miner)
-        ref_bal = remove_address(ref_bal, "0x0000000000000000000000000000000000000000")
-        ref_bal = remove_address(ref_bal, miner)
+        # besu_bal = remove_address(besu_bal, "0x0000000000000000000000000000000000000000")
+        # besu_bal = remove_address(besu_bal, miner)
+        # ref_bal = remove_address(ref_bal, "0x0000000000000000000000000000000000000000")
+        # ref_bal = remove_address(ref_bal, miner)
 
         ref_bal = index_account_changes(ref_bal)
         besu_bal = index_account_changes(besu_bal)
